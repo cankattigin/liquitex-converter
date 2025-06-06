@@ -118,6 +118,22 @@
       margin: 4px 0;
       font-size: 1em;
     }
+
+    /* ---------------- Paint-Type Selection ---------------- */
+    .paint-type {
+      margin-top: 20px;
+    }
+    .paint-type label {
+      font-weight: bold;
+      display: block;
+      margin-bottom: 4px;
+    }
+    .paint-type select {
+      width: 100%;
+      padding: 6px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
   </style>
 </head>
 <body>
@@ -214,6 +230,22 @@
       <p id="difficultyWarning" class="warning" style="display:none;">
         Hard to mix by hand: mixture uses half-drops or multiple touches.
       </p>
+
+      <!-- 4) Paint‐Type Selection -->
+      <div class="paint-type">
+        <label for="paintType">Step 2: Choose Paint Type</label>
+        <select id="paintType" onchange="showMediaMix()">
+          <option value="">— pick one —</option>
+          <option value="basecoat">Basecoat</option>
+          <option value="layer">Layer</option>
+          <option value="contrast">Contrast Paint</option>
+          <option value="glaze">Glaze</option>
+          <option value="wash">Wash</option>
+        </select>
+      </div>
+
+      <!-- 5) Media Mix Instructions -->
+      <div id="mediaMixInstructions"></div>
     </div>
   </div>
 
@@ -244,17 +276,27 @@
       return arr.map(x => Math.round((x / sum) * 100));
     }
 
-    // -------- 3) Build colored icons (●, ◐, ◦) ----------
-    function buildIcons(inkName, full, half, touch) {
+    // -------- 3) Build colored icons (●, ◐, ◦) -----------
+    function buildIcons(itemName, full, half, touch) {
       const colorMap = {
-        "Cyan": "#2A9DF4",
-        "Magenta": "#C72177",
-        "Yellow": "#FFD300",
-        "Gray": "#808080",
-        "Black": "#000000",
-        "White": "#CCCCCC"
+        "Cyan":        "#2A9DF4",
+        "Magenta":     "#C72177",
+        "Yellow":      "#FFD300",
+        "Gray":        "#808080",
+        "Black":       "#000000",
+        "White":       "#CCCCCC",
+        "Matte":       "#D3D3D3",   // light gray
+        "Glaze":       "#F0E68C",   // light gray-yellow
+        "Water":       "#ADD8E6",   // light blue
+        "FlowAid":     "#E0EAF1"    // pale gray-blue
       };
-      const col = colorMap[inkName] || "black";
+      let col;
+      if (itemName === "CustomInk") {
+        // Dynamic custom ink color = preview box color
+        col = document.getElementById("colorPreview").style.backgroundColor;
+      } else {
+        col = colorMap[itemName] || "black";
+      }
       let html = "";
       for (let i = 0; i < full; i++) html += `<span style="color:${col}">●</span>`;
       for (let i = 0; i < half; i++) html += `<span style="color:${col}">◐</span>`;
@@ -262,64 +304,49 @@
       return html;
     }
 
-    // -------- 4) From rawPerc [pC,pM,pY,pK,pW] → Digital Gray → real-ink weights → minimal drops/halves/touches --------
+    // -------- 4) From rawPerc [pC,pM,pY,pK,pW] → Digital Gray → real-ink weights → minimal drops/halves/touches ----
     function calculateDrops(rawPerc) {
-      // rawPerc = [pC,pM,pY,pK,pW], each 0–100, sums to 100.
-      // 4A) “Digital drop units” = rawPerc ÷ 20
       let [pC, pM, pY, pK, pW] = rawPerc;
       let duC = pC / 20, duM = pM / 20, duY = pY / 20, duK = pK / 20, duW = pW / 20;
 
-      // 4B) FORM DIGITAL GRAY FIRST, BEFORE ANY STRENGTH ADJUSTMENT
       let grayDigital = Math.min(duK, duW);
-      duK -= grayDigital; // leftover digital Black
-      duW -= grayDigital; // leftover digital White
+      duK -= grayDigital;
+      duW -= grayDigital;
 
-      // 4C) APPLY PIGMENT STRENGTH
-      //    - Cyan ×1, Magenta ÷3, Yellow ×1, Gray ×1, Black ÷2, White ×1
-      let wC    = duC;           
-      let wM    = duM / 3;       // Magenta is 3× strong
-      let wY    = duY;           
-      let wGray = grayDigital;   
-      let wK    = duK / 2;       // leftover Black is 2× strong
-      let wW    = duW;           
+      let wC    = duC;
+      let wM    = duM / 3;    // Magenta is 3× strong
+      let wY    = duY;
+      let wGray = grayDigital;
+      let wK    = duK / 2;    // leftover Black is 2× strong
+      let wW    = duW;
 
-      // 4D) These are our real-ink weights: [wC, wM, wY, wGray, wK, wW]
       const weights = [wC, wM, wY, wGray, wK, wW];
-
-      // 4E) Find smallest nonzero weight
       const nonZero = weights.filter(x => x > 0);
       if (nonZero.length === 0) {
-        // Edge-case: pure black or white → show a half-drop of Gray
         return {
           "Cyan":    [0, 0, 0],
           "Magenta": [0, 0, 0],
           "Yellow":  [0, 0, 0],
-          "Gray":    [0, 1, 0],  // one half-drop of Gray
+          "Gray":    [0, 1, 0],  // half-drop of Gray
           "Black":   [0, 0, 0],
           "White":   [0, 0, 0]
         };
       }
       const minW = Math.min(...nonZero);
-
-      // 4F) Compute “ratio = weight ÷ minW” for each channel
       const ratioArr = weights.map(w => w / minW);
 
-      // 4G) Convert each ratio → full, half, touches (minimal number of drops/halves)
       const inkNames = ["Cyan","Magenta","Yellow","Gray","Black","White"];
       const result = {};
       ratioArr.forEach((r, idx) => {
         let full = Math.floor(r);
-        let rem = r - full;
+        let rem  = r - full;
         let half = 0, touch = 0;
 
         if (rem >= 0.75) {
-          // If remainder ≥ 0.75, round up to a full drop
           full += 1;
         } else if (rem >= 0.25) {
-          // If 0.25 ≤ rem < 0.75, use one half-drop
           half = 1;
         } else if (rem > 0) {
-          // rem < 0.25 → convert to touches (round to nearest 0.1)
           touch = Math.round(rem / 0.1);
         }
         result[inkNames[idx]] = [full, half, touch];
@@ -328,7 +355,7 @@
       return result;
     }
 
-    // -------- 5) Cap total drop-volume ≤ 20 by converting full→half, half→touch as needed --------
+    // -------- 5) Cap total drop-volume ≤ 20 by converting full→half, half→touch as needed -----------
     function capUnder20(mix) {
       function volume(m) {
         return m.full + 0.5*m.half + 0.1*m.touch;
@@ -339,7 +366,6 @@
       let vol = totalVolume(mix);
       if (vol <= 20) return mix;
 
-      // 5A) Convert full → half (each step reduces volume by 0.5)
       const inkOrder = Object.keys(mix).sort((a,b) => mix[b].full - mix[a].full);
       for (let name of inkOrder) {
         while (mix[name].full > 0 && totalVolume(mix) > 20) {
@@ -350,7 +376,6 @@
       vol = totalVolume(mix);
       if (vol <= 20) return mix;
 
-      // 5B) Convert half → 3 touches (0.5 → 0.3, reducing volume by 0.2)
       const halfOrder = Object.keys(mix).sort((a,b) => mix[b].half - mix[a].half);
       for (let name of halfOrder) {
         while (mix[name].half > 0 && totalVolume(mix) > 20) {
@@ -361,20 +386,11 @@
       return mix;
     }
 
-    // -------- 6) Fallback to full-drop-only if mix ends up “all touches” --------
+    // -------- 6) Fallback to full-drop-only if mix ends up “all touches” -----------
     function fallbackToFullDropsOnly(rawPerc) {
-      // rawPerc = [pC,pM,pY,pK,pW], sums to 100.
-      // Make up to 20 full drops in proportion to rawPerc, rounding to nearest integer.
-      // If sum > 20, subtract from channel with smallest fractional part until sum=20.
-      // If sum < 20, leave as is.
-
-      // 6A) Ideal 20-drop counts
       let ideal = rawPerc.map(p => (p / 100) * 20);
-
-      // 6B) Round to nearest integer
       let fullDrops = ideal.map(x => Math.round(x));
 
-      // 6C) If sum > 20, subtract from smallest fractional-part channels
       let S = fullDrops.reduce((a,b) => a + b, 0);
       if (S > 20) {
         let fracs = ideal.map((x,i) => ({ idx: i, frac: x - Math.floor(x) }));
@@ -390,7 +406,6 @@
         }
       }
 
-      // 6D) Build result (all full, no half, no touch)
       const inkNames = ["Cyan","Magenta","Yellow","Gray","Black","White"];
       let result = {};
       inkNames.forEach((ink,i) => {
@@ -399,7 +414,10 @@
       return result;
     }
 
-    // -------- Main calculate() handler --------
+    // -------- Global var to store total ink drops (not strictly needed for ratios) -----------
+    let lastTotalInkDrops = 0;
+
+    // -------- Main calculate() handler -----------
     function calculate() {
       const r = parseInt(document.getElementById("rInput").value);
       const g = parseInt(document.getElementById("gInput").value);
@@ -415,25 +433,22 @@
         return;
       }
 
-      // 1) Compute raw CMYKW proportions + percentages
+      // 1) Compute raw CMYKW + percentages
       const [cProp, mProp, yProp, kProp, wProp] = rgbToCmykW(r, g, b);
       const rawPerc = toPercentages([cProp, mProp, yProp, kProp, wProp]);
       const [pC, pM, pY, pK, pW] = rawPerc;
 
-      // 2) Display raw percentages
       document.getElementById("cRaw").textContent = `C: ${pC}%`;
       document.getElementById("mRaw").textContent = `M: ${pM}%`;
       document.getElementById("yRaw").textContent = `Y: ${pY}%`;
       document.getElementById("kRaw").textContent = `K: ${pK}%`;
       document.getElementById("wRaw").textContent = `W: ${pW}%`;
 
-      // 3) Calculate real-ink drop mix (strength AFTER digital Gray)
+      // 2) Calculate real-ink drop mix
       let dropMix = calculateDrops(rawPerc);
-
-      // 4) Cap total drop-volume ≤ 20
       let mix = capUnder20(dropMix);
 
-      // 5) Check if mix is “all touches” (no full, no half)
+      // 3) Fallback if all touches
       let onlyTouches = true;
       for (let ink of Object.keys(mix)) {
         if (mix[ink][0] > 0 || mix[ink][1] > 0) {
@@ -445,16 +460,21 @@
         mix = fallbackToFullDropsOnly(rawPerc);
       }
 
-      // 6) Populate Drop Mix results
+      // 4) Populate drop instructions & compute total ink drops
       let usedHalf = false;
       let usedTouches = 0;
+      let totalInkDrops = 0;
       function showInk(name) {
         const [full, half, touch] = mix[name];
         if (half > 0) usedHalf = true;
         usedTouches += touch;
+        const volume = full + 0.5 * half + 0.1 * touch;
+        if (["Cyan","Magenta","Yellow","Gray","Black","White"].includes(name)) {
+          totalInkDrops += volume;
+        }
         let parts = [];
-        if (full) parts.push(`${full} drop${full>1?"s":""}`);
-        if (half) parts.push(`${half} half-drop`);
+        if (full)  parts.push(`${full} drop${full>1?"s":""}`);
+        if (half)  parts.push(`${half} half-drop`);
         if (touch) parts.push(`${touch} touch${touch>1?"es":""}`);
         const text = parts.length ? parts.join(" + ") : "0";
         document.getElementById(name.toLowerCase() + "Result").textContent = text;
@@ -463,7 +483,9 @@
       }
       ["Cyan","Magenta","Yellow","Gray","Black","White"].forEach(showInk);
 
-      // 7) Show/hide difficulty warning only if any half-drops OR more than one touch
+      lastTotalInkDrops = totalInkDrops;
+
+      // 5) Show/hide difficulty warning
       const diffWarn = document.getElementById("difficultyWarning");
       if (usedHalf || usedTouches > 1) {
         diffWarn.style.display = "block";
@@ -471,14 +493,84 @@
         diffWarn.style.display = "none";
       }
 
-      // 8) Reveal results area
+      // 6) Reveal results & reset paint-type UI
       document.getElementById("resultsArea").style.display = "block";
+      document.getElementById("paintType").value = "";
+      document.getElementById("mediaMixInstructions").innerHTML = "";
 
-      // 9) Update color preview
+      // 7) Update color preview
       updatePreview();
     }
 
-    // -------- Update preview color box --------
+    // -------- Show media-mix ratios based on paintType --------
+    function showMediaMix() {
+      const paintType = document.getElementById("paintType").value;
+      const container = document.getElementById("mediaMixInstructions");
+      container.innerHTML = "";
+
+      if (!paintType) return;
+
+      let items = []; // [ [label, key, count], ... ] where key matches buildIcons
+
+      switch (paintType) {
+        case "basecoat":
+          items = [
+            ["Color Ink", "CustomInk", 1],
+            ["Matte Medium", "Matte", 1]
+          ];
+          break;
+        case "layer":
+          items = [
+            ["Color Ink", "CustomInk", 3],
+            ["Matte Medium", "Matte", 2],
+            ["Purified Water", "Water", 1]
+          ];
+          break;
+        case "contrast":
+          items = [
+            ["Color Ink", "CustomInk", 5],
+            ["Matte Medium", "Matte", 5],
+            ["Flow Aid", "FlowAid", 1]
+          ];
+          break;
+        case "glaze":
+          items = [
+            ["Color Ink", "CustomInk", 1],
+            ["Glaze Medium", "Glaze", 2]
+          ];
+          break;
+        case "wash":
+          items = [
+            ["Color Ink", "CustomInk", 3],
+            ["Matte Medium", "Matte", 4],
+            ["Purified Water", "Water", 12],
+            ["Flow Aid", "FlowAid", 2]
+          ];
+          break;
+        default:
+          return;
+      }
+
+      // Build HTML
+      let html = `<p><strong>${paintType.charAt(0).toUpperCase() + paintType.slice(1)} ratio:</strong></p>`;
+      items.forEach(([label, key, count]) => {
+        html += `
+          <p>
+            <strong>${label}:</strong> ${count} drop${count>1?"s":""}
+            <span class="icon-container">
+              ${buildIcons(key, count, 0, 0)}
+            </span>
+          </p>
+        `;
+      });
+      html += `<p class="info">
+                 Scale up or down by using that same ratio.<br>
+                 (E.g. for Wash: each 3 drops of ink → 4 matte, 12 water, 2 flow.)
+               </p>`;
+      container.innerHTML = html;
+    }
+
+    // -------- Update preview color box -----------
     function updatePreview() {
       let r = parseInt(document.getElementById("rInput").value) || 0;
       let g = parseInt(document.getElementById("gInput").value) || 0;
