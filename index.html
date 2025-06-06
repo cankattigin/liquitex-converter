@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Liquitex RGB → Ink Converter</title>
+  <style>
+    /* Basic styling */
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      background-color: #f5f5f5;
+    }
+    h1 {
+      text-align: center;
+    }
+    .container {
+      max-width: 600px; /* Increased width */
+      margin: 0 auto;
+      background: #ffffff;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    .input-group {
+      margin-bottom: 12px;
+    }
+    .input-group label {
+      display: block;
+      margin-bottom: 4px;
+      font-weight: bold;
+    }
+    .input-group input {
+      width: 100%;
+      padding: 6px;
+      box-sizing: border-box;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    button {
+      width: 100%;
+      padding: 10px;
+      background-color: #007acc;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 16px;
+      cursor: pointer;
+      margin-top: 8px;
+    }
+    button:hover {
+      background-color: #005ea6;
+    }
+    .results {
+      margin-top: 20px;
+      background: #fafafa;
+      padding: 10px;
+      border-radius: 4px;
+      border: 1px solid #ddd;
+    }
+    .results p {
+      margin: 6px 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .warning {
+      font-size: 0.9em;
+      color: #555;
+      margin-top: 6px;
+    }
+    .color-preview {
+      width: 100%;
+      height: 50px;
+      margin-top: 10px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+    }
+    /* Icon container styling */
+    .icon-container {
+      display: inline-flex;
+      flex-wrap: wrap;
+      gap: 2px;
+      margin-left: 8px;
+      font-size: 1.2em;
+      line-height: 1;
+    }
+    .icon-container span {
+      display: inline-block;
+      width: 1em;
+      height: 1em;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>RGB → Liquitex Ink Converter</h1>
+
+    <!-- RGB inputs -->
+    <div class="input-group">
+      <label for="rInput">R (0–255)</label>
+      <input type="number" id="rInput" min="0" max="255" value="0" oninput="updatePreview()" />
+    </div>
+    <div class="input-group">
+      <label for="gInput">G (0–255)</label>
+      <input type="number" id="gInput" min="0" max="255" value="0" oninput="updatePreview()" />
+    </div>
+    <div class="input-group">
+      <label for="bInput">B (0–255)</label>
+      <input type="number" id="bInput" min="0" max="255" value="0" oninput="updatePreview()" />
+    </div>
+
+    <!-- Total drops input -->
+    <div class="input-group">
+      <label for="totalDropsInput">Total Drops (default 20)</label>
+      <input type="number" id="totalDropsInput" min="1" value="20" />
+    </div>
+
+    <!-- Color preview box -->
+    <div id="colorPreview" class="color-preview" style="background-color: rgb(0,0,0);"></div>
+
+    <!-- Calculate button -->
+    <button onclick="calculate()">Calculate</button>
+
+    <!-- Results -->
+    <div class="results" id="resultsArea" style="display: none;">
+      <p>
+        <strong>Cerulean Blue Hue:</strong>
+        <span>
+          <span id="cyanResult">-</span>
+          <span id="cyanIcons" class="icon-container"></span>
+        </span>
+      </p>
+      <p>
+        <strong>Quinacridone Magenta:</strong>
+        <span>
+          <span id="magentaResult">-</span>
+          <span id="magentaIcons" class="icon-container"></span>
+        </span>
+      </p>
+      <p>
+        <strong>Cadmium Yellow Light Hue:</strong>
+        <span>
+          <span id="yellowResult">-</span>
+          <span id="yellowIcons" class="icon-container"></span>
+        </span>
+      </p>
+      <p>
+        <strong>Neutral Gray 5:</strong>
+        <span>
+          <span id="grayResult">-</span>
+          <span id="grayIcons" class="icon-container"></span>
+        </span>
+      </p>
+      <p>
+        <strong>Carbon Black:</strong>
+        <span>
+          <span id="blackResult">-</span>
+          <span id="blackIcons" class="icon-container"></span>
+        </span>
+      </p>
+      <p>
+        <strong>Titanium White:</strong>
+        <span>
+          <span id="whiteResult">-</span>
+          <span id="whiteIcons" class="icon-container"></span>
+        </span>
+      </p>
+      <p class="warning">
+        Note: 1 “touch” = a light touch with a brush tip (≈ 0.1 drop). Touches are used only if 3 or fewer.
+      </p>
+    </div>
+  </div>
+
+  <!-- JavaScript code -->
+  <script>
+    // 1) Convert RGB (0–255) to CMYK proportions (0–1)
+    function rgbToCmyk(r, g, b) {
+      var rNorm = r / 255;
+      var gNorm = g / 255;
+      var bNorm = b / 255;
+
+      var k = 1 - Math.max(rNorm, gNorm, bNorm);
+      if (k >= 1) {
+        return [0, 0, 0, 1];
+      }
+      var c = (1 - rNorm - k) / (1 - k);
+      var m = (1 - gNorm - k) / (1 - k);
+      var y = (1 - bNorm - k) / (1 - k);
+      return [c, m, y, k];
+    }
+
+    // 2) Compute ink amounts using full drops, half-drops, and up to 3 touches
+    function calculateInkAmounts(r, g, b, totalDrops) {
+      // 2.1) CMYK proportions
+      var [c, m, y, k] = rgbToCmyk(r, g, b);
+
+      // 2.2) Raw proportions before gray-merge
+      var blackProp   = k;
+      var cyanProp    = c * (1 - k);
+      var magentaProp = m * (1 - k);
+      var yellowProp  = y * (1 - k);
+      var whiteProp   = Math.max(1 - (blackProp + cyanProp + magentaProp + yellowProp), 0);
+
+      // 2.3) Gray is overlap of black vs. white
+      var grayProp       = Math.min(blackProp, whiteProp);
+      var extraBlackProp = blackProp - grayProp;
+      var extraWhiteProp = whiteProp - grayProp;
+
+      // 2.4) Adjust for pigment strength
+      var adjCyan    = cyanProp;              // Cerulean Blue Hue
+      var adjMagenta = magentaProp / 3;       // Quinacridone Magenta is 3× stronger
+      var adjYellow  = yellowProp;            // Cadmium Yellow Light Hue
+      var adjGray    = grayProp;              // Neutral Gray 5
+      var adjBlack   = extraBlackProp / 2;    // Carbon Black is 2× stronger
+      var adjWhite   = extraWhiteProp;        // Titanium White
+
+      // 2.5) Normalize weights
+      var weights = {
+        Cyan:    adjCyan,
+        Magenta: adjMagenta,
+        Yellow:  adjYellow,
+        Gray:    adjGray,
+        Black:   adjBlack,
+        White:   adjWhite
+      };
+      var weightSum = 0;
+      for (var key in weights) {
+        weightSum += weights[key];
+      }
+      if (weightSum === 0) {
+        // Pure black or pure white: assign Neutral Gray 5 one half-drop
+        return {
+          Cyan:    { fullDrops: 0, halfDrops: 0, touches: 0 },
+          Magenta: { fullDrops: 0, halfDrops: 0, touches: 0 },
+          Yellow:  { fullDrops: 0, halfDrops: 0, touches: 0 },
+          Gray:    { fullDrops: 0, halfDrops: 1, touches: 0 },
+          Black:   { fullDrops: 0, halfDrops: 0, touches: 0 },
+          White:   { fullDrops: 0, halfDrops: 0, touches: 0 }
+        };
+      }
+
+      var result = {};
+      for (var ink in weights) {
+        var prop     = weights[ink] / weightSum; // normalized proportion
+        var rawDrops = prop * totalDrops;        // float
+
+        // 2.6) Break rawDrops into full, half, touches
+        var intPart  = Math.floor(rawDrops);
+        var fraction = rawDrops - intPart;
+        var fullDrops = 0, halfDrops = 0, touches = 0;
+
+        if (fraction <= 0.3) {
+          // Use touches (0.1 each) if ≤ 3 touches
+          touches = Math.round(fraction * 10);
+          fullDrops = intPart;
+        } else if (fraction < 0.75) {
+          // Use a half-drop
+          fullDrops = intPart;
+          halfDrops = 1;
+        } else {
+          // Round up to next full drop
+          fullDrops = intPart + 1;
+        }
+
+        result[ink] = { fullDrops: fullDrops, halfDrops: halfDrops, touches: touches };
+      }
+
+      return result;
+    }
+
+    // 3) Called when "Calculate" is clicked
+    function calculate() {
+      var r = parseInt(document.getElementById('rInput').value);
+      var g = parseInt(document.getElementById('gInput').value);
+      var b = parseInt(document.getElementById('bInput').value);
+      var totalDrops = parseInt(document.getElementById('totalDropsInput').value);
+
+      // Validate inputs
+      if (
+        isNaN(r) || isNaN(g) || isNaN(b) || isNaN(totalDrops) ||
+        r < 0 || r > 255 ||
+        g < 0 || g > 255 ||
+        b < 0 || b > 255 ||
+        totalDrops < 1
+      ) {
+        alert("Please enter valid R, G, B (0–255) and Total Drops (≥1).");
+        return;
+      }
+
+      // Compute mixes
+      var mixes = calculateInkAmounts(r, g, b, totalDrops);
+
+      // Helper to build colored icon string
+      function buildVisualIcons(inkName, fullDrops, halfDrops, touches) {
+        var colorMap = {
+          "Cyan":    "#2A9DF4",   // Cerulean Blue Hue
+          "Magenta": "#C72177",   // Quinacridone Magenta
+          "Yellow":  "#FFD300",   // Cadmium Yellow Light Hue
+          "Gray":    "#808080",   // Neutral Gray 5
+          "Black":   "#000000",   // Carbon Black
+          "White":   "#CCCCCC"    // Titanium White (light gray for visibility)
+        };
+        var col = colorMap[inkName] || "black";
+        var html = "";
+
+        // Full-drop symbol: ●
+        for (var i = 0; i < fullDrops; i++) {
+          html += '<span style="color:' + col + ';">●</span>';
+        }
+        // Half-drop symbol: ◐
+        for (var j = 0; j < halfDrops; j++) {
+          html += '<span style="color:' + col + ';">◐</span>';
+        }
+        // Touch symbol: ◦
+        for (var k = 0; k < touches; k++) {
+          html += '<span style="color:' + col + ';">◦</span>';
+        }
+        return html;
+      }
+
+      // Display results for a given ink
+      function displayInk(internalName, displayName) {
+        var info = mixes[internalName];
+        var parts = [];
+        if (info.fullDrops > 0) {
+          parts.push(info.fullDrops + " drop" + (info.fullDrops > 1 ? "s" : ""));
+        }
+        if (info.halfDrops > 0) {
+          parts.push(info.halfDrops + " half-drop");
+        }
+        if (info.touches > 0) {
+          parts.push(info.touches + " touch" + (info.touches > 1 ? "es" : ""));
+        }
+        var text = parts.length ? parts.join(" + ") : "0";
+
+        // Update text
+        var resultId = internalName.toLowerCase() + "Result";
+        document.getElementById(resultId).textContent = text;
+
+        // Update icons
+        var iconsId = internalName.toLowerCase() + "Icons";
+        document.getElementById(iconsId).innerHTML =
+          buildVisualIcons(internalName, info.fullDrops, info.halfDrops, info.touches);
+      }
+
+      // Update each ink: (internalName, displayName)
+      displayInk("Cyan",    "Cerulean Blue Hue");
+      displayInk("Magenta", "Quinacridone Magenta");
+      displayInk("Yellow",  "Cadmium Yellow Light Hue");
+      displayInk("Gray",    "Neutral Gray 5");
+      displayInk("Black",   "Carbon Black");
+      displayInk("White",   "Titanium White");
+
+      // Reveal the results panel
+      document.getElementById('resultsArea').style.display = "block";
+
+      // Update color preview
+      updatePreview();
+    }
+
+    // 4) Update preview when R/G/B changes
+    function updatePreview() {
+      var r = parseInt(document.getElementById('rInput').value) || 0;
+      var g = parseInt(document.getElementById('gInput').value) || 0;
+      var b = parseInt(document.getElementById('bInput').value) || 0;
+      r = Math.min(255, Math.max(0, r));
+      g = Math.min(255, Math.max(0, g));
+      b = Math.min(255, Math.max(0, b));
+      document.getElementById("colorPreview").style.backgroundColor =
+        "rgb(" + r + "," + g + "," + b + ")";
+    }
+
+    // 5) On load, set initial preview
+    window.onload = function() {
+      updatePreview();
+    };
+  </script>
+</body>
+</html>
